@@ -1,121 +1,185 @@
+import flwr as fl
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
 import numpy as np
-import tensorflow as tf
-import random
+import matplotlib.pyplot as plt
+from collections import OrderedDict
 
-def build_model():
-    model = tf.keras.Sequential(
-        [
-            tf.keras.layers.Reshape((28, 28, 1), input_shape=(28*28,)),
-            tf.keras.layers.Conv2D(32, 3, activation="relu"),
-            tf.keras.layers.MaxPooling2D(),
-            tf.keras.layers.Conv2D(64, 3, activation="relu"),
-            tf.keras.layers.MaxPooling2D(),
-            tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(128, activation="relu"),
-            tf.keras.layers.Dense(10, activation="softmax"),
-        ]
-    )
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
-    return model
+NUM_CLIENTS   = 4
+ROUNDS        = 3
+LR            = 0.01
+MOMENTUM      = 0.9
+LOCAL_EPOCHS  = 1
+BATCH_SIZE    = 32
+CLIENT_FRAC   = 1.0
 
+transform = transforms.Compose([transforms.ToTensor()])
+trainset = torchvision.datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+testset = torchvision.datasets.MNIST(root="./data", train=False, download=True, transform=transform)
 
-def load_mnist_flat():
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-    x_train = x_train.reshape((-1, 28*28)).astype("float32") / 255.0
-    x_test = x_test.reshape((-1, 28*28)).astype("float32") / 255.0
-    return (x_train, y_train), (x_test, y_test)
+def get_testloader(batch_size=32):
+    return torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
 
+def iid_partition(dataset, num_clients):
+    num_items = int(len(dataset)/num_clients)
+    all_indices = np.arange(len(dataset))
+    np.random.shuffle(all_indices)
+    return {i: all_indices[i*num_items:(i+1)*num_items] for i in range(num_clients)}
 
-def create_iid_partitions(x, y, num_clients):
-    n = len(x)
-    idxs = np.random.permutation(n)
-    split = np.array_split(idxs, num_clients)
-    return [(x[s], y[s]) for s in split]
-
-
-def create_noniid_partitions(x, y, num_clients, shards_per_client=2):
+def noniid_partition(dataset, num_clients, shards_per_client=2):
     num_shards = num_clients * shards_per_client
-    shard_size = len(x) // num_shards
+    shard_size = len(dataset) // num_shards
+    idxs = np.arange(len(dataset))
+    labels = np.array(dataset.targets)
 
-    idxs = np.argsort(y)
-    x_sorted, y_sorted = x[idxs], y[idxs]
+    idxs_labels = np.vstack((idxs, labels))
+    idxs_labels = idxs_labels[:, idxs_labels[1, :].argsort()]
+    idxs = idxs_labels[0, :]
 
-    shards = [(x_sorted[i*shard_size:(i+1)*shard_size],
-               y_sorted[i*shard_size:(i+1)*shard_size])
-              for i in range(num_shards)]
+    shards = [idxs[i*shard_size:(i+1)*shard_size] for i in range(num_shards)]
+    np.random.shuffle(shards)
 
-    random.shuffle(shards)
-    client_partitions = []
+    client_dict = {i: np.array([], dtype=int) for i in range(num_clients)}
     for i in range(num_clients):
-        client_shards = shards[i*shards_per_client:(i+1)*shards_per_client]
-        xs = np.vstack([s[0] for s in client_shards])
-        ys = np.hstack([s[1] for s in client_shards])
-        client_partitions.append((xs, ys))
-    return client_partitions
+        chosen = shards[shards_per_client*i : shards_per_client*(i+1)]
+        client_dict[i] = np.concatenate(chosen, axis=0)
+    return client_dict
 
-def fedavg_train(num_clients=10, frac_clients=0.5, rounds=5, local_epochs=1,
-                batch_size=32, non_iid=False):
-    (x_train, y_train), (x_test, y_test) = load_mnist_flat()
+iid_data = iid_partition(trainset, NUM_CLIENTS)
+noniid_data = noniid_partition(trainset, NUM_CLIENTS)
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.fc1 = nn.Linear(320, 50)
+        self.fc2 = nn.Linear(50, 10)
 
-    if non_iid:
-        partitions = create_noniid_partitions(x_train, y_train, num_clients)
-    else:
-        partitions = create_iid_partitions(x_train, y_train, num_clients)
+    def forward(self, x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2(x), 2))
+        x = x.view(-1, 320)
+        x = F.relu(self.fc1(x))
+        return F.log_softmax(self.fc2(x), dim=1)
 
-    # Global model
-    global_model = build_model()
+def train(model, trainloader, epochs=1):
+    optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM)
+    criterion = nn.NLLLoss()
+    model.train()
+    for _ in range(epochs):
+        for data, target in trainloader:
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
 
-    # History
-    round_acc = []
+def test(model, testloader):
+    criterion = nn.NLLLoss()
+    correct, loss_total = 0, 0
+    model.eval()
+    with torch.no_grad():
+        for data, target in testloader:
+            output = model(data)
+            loss_total += criterion(output, target).item()
+            pred = output.argmax(dim=1)
+            correct += pred.eq(target).sum().item()
+    accuracy = correct / len(testloader.dataset)
+    return loss_total / len(testloader), accuracy
 
-    for r in range(1, rounds+1):
-        print(f"\n--- Round {r} ---")
+class FlowerClient(fl.client.NumPyClient):
+    def __init__(self, cid, data_indices, batch_size, local_epochs):
+        self.cid = cid
+        self.model = Net()
+        self.trainloader = torch.utils.data.DataLoader(
+            torch.utils.data.Subset(trainset, data_indices),
+            batch_size=batch_size, shuffle=True
+        )
+        self.local_epochs = local_epochs
 
-        # Select fraction of clients
-        m = max(1, int(frac_clients * num_clients))
-        selected = random.sample(range(num_clients), m)
+    def get_parameters(self, config=None):
+        return [val.cpu().numpy() for _, val in self.model.state_dict().items()]
 
-        client_weights = []
-        client_sizes = []
+    def set_parameters(self, parameters):
+        params_dict = zip(self.model.state_dict().keys(), parameters)
+        state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+        self.model.load_state_dict(state_dict, strict=True)
 
-        # Train each selected client
-        for cid in selected:
-            model = build_model()
-            model.set_weights(global_model.get_weights())
-            x_c, y_c = partitions[cid]
-            model.fit(x_c, y_c,
-                      batch_size=batch_size,
-                      epochs=local_epochs,
-                      verbose=0)
-            client_weights.append(model.get_weights())
-            client_sizes.append(len(x_c))
+    def fit(self, parameters, config=None):
+        self.set_parameters(parameters)
+        train(self.model, self.trainloader, epochs=self.local_epochs)
+        return self.get_parameters(), len(self.trainloader.dataset), {}
 
-        # Aggregate updates (weighted average)
-        new_weights = []
-        total_size = sum(client_sizes)
-        for weights_tuple in zip(*client_weights):
-            avg_w = np.sum(
-                [w * (n/total_size) for w, n in zip(weights_tuple, client_sizes)],
-                axis=0
-            )
-            new_weights.append(avg_w)
-        global_model.set_weights(new_weights)
+    def evaluate(self, parameters, config=None):
+        self.set_parameters(parameters)
+        loss, accuracy = test(self.model, get_testloader(BATCH_SIZE))
+        return float(loss), len(testset), {"accuracy": float(accuracy)}
 
-        # Evaluate global model
-        loss, acc = global_model.evaluate(x_test, y_test, verbose=0)
-        print(f"Round {r} Test accuracy: {acc:.4f}")
-        round_acc.append(acc)
+def run_simulation(partitioned_data, num_rounds, batch_size, local_epochs, client_frac):
+    acc_list = []
 
-    return global_model, round_acc
-global_model, acc_history = fedavg_train(
-    num_clients=10,
-    frac_clients=0.5,
-    rounds=5,
-    local_epochs=1,
-    batch_size=32,
-    non_iid=True   # set True for non-IID
-)
+    def client_fn(cid: str):
+        return FlowerClient(cid, partitioned_data[int(cid)], batch_size, local_epochs)
+
+    def evaluate(server_round, parameters, config):
+        model = Net()
+        params_dict = zip(model.state_dict().keys(), parameters)
+        state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+        model.load_state_dict(state_dict, strict=True)
+
+        loss, accuracy = test(model, get_testloader(batch_size))
+        acc_list.append(accuracy)  # 👈 Manual storage
+        return loss, {"accuracy": accuracy}
+
+    strategy = fl.server.strategy.FedAvg(
+        fraction_fit=client_frac,
+        evaluate_fn=evaluate
+    )
+
+    fl.simulation.start_simulation(
+        client_fn=client_fn,
+        num_clients=len(partitioned_data),
+        config=fl.server.ServerConfig(num_rounds=num_rounds),
+        strategy=strategy,
+        client_resources={"num_cpus": 1},
+    )
+    return acc_list
+
+iid_acc = run_simulation(iid_data, ROUNDS, BATCH_SIZE, LOCAL_EPOCHS, CLIENT_FRAC)
+noniid_acc = run_simulation(noniid_data, ROUNDS, BATCH_SIZE, LOCAL_EPOCHS, CLIENT_FRAC)
+
+plt.figure(figsize=(8,5))
+plt.plot(range(1, len(iid_acc)+1), iid_acc, label="IID")
+plt.plot(range(1, len(noniid_acc)+1), noniid_acc, label="Non-IID")
+plt.xlabel("Round")
+plt.ylabel("Accuracy")
+plt.title("IID vs Non-IID Federated Learning (MNIST)")
+plt.legend()
+plt.show()
+
+results = {}
+
+# Vary E
+for e in [1, 3]:
+    results[f"E={e}"] = run_simulation(iid_data, ROUNDS, BATCH_SIZE, e, CLIENT_FRAC)
+
+# Vary B
+for b in [16, 64]:
+    results[f"B={b}"] = run_simulation(iid_data, ROUNDS, b, LOCAL_EPOCHS, CLIENT_FRAC)
+
+# Vary C
+for c in [0.5, 1.0]:
+    results[f"C={c}"] = run_simulation(iid_data, ROUNDS, BATCH_SIZE, LOCAL_EPOCHS, c)
+
+plt.figure(figsize=(8,5))
+for label, acc in results.items():
+    plt.plot(range(1, len(acc)+1), acc, label=label)
+plt.xlabel("Round")
+plt.ylabel("Accuracy")
+plt.title("Effect of E, B, C on Federated Learning (MNIST, IID)")
+plt.legend()
+plt.show()
