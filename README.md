@@ -1,6 +1,6 @@
-# Federated Learning — Summary, Code Explanation, and Results
+# Federated Learning -> Summary, Code Explanation, and Results
 
-## 1 — Short summary of Federated Learning
+## 1, Short summary of Federated Learning
 **Federated Learning (FL)** is a distributed training approach where many clients (devices, organizations) train a shared global model collaboratively **without sending raw data to a central server**. Each client trains locally and sends model updates (weights or gradients) to the server. The server aggregates updates (commonly with **FedAvg**) to produce a new global model.
 
 **Benefits:** privacy (data stays local), reduced raw-data movement, ability to combine models trained on geographically/organizationally separated data.  
@@ -8,7 +8,7 @@
 
 ---
 
-## 2 — The results (plots)
+## 2, The results (plots)
 
 ### Effect of E, B, C on Federated Learning (MNIST, NON_IID)
 ![Effect of E, B, C on Federated Learning (MNIST, NON_IID)](comp.png)
@@ -18,7 +18,7 @@
 
 ---
 
-## 3 — What the code does (walkthrough / how it works)
+## 3, What the code does (walkthrough / how it works)
 
 1. **Hyperparameters**  
    `NUM_CLIENTS = 4`, `ROUNDS = 3`, `LR = 0.01`, `LOCAL_EPOCHS`, `BATCH_SIZE`, `CLIENT_FRAC` etc. These control number of clients, training rounds, local training intensity, and how many clients participate each round.
@@ -50,7 +50,7 @@
 
 ---
 
-## 4 — Why the plots look the way they do (explanations & causes)
+## 4, Why the plots look the way they do (explanations & causes)
 
 ### Observed fast convergence to very high accuracy (IID case)
 - MNIST is relatively easy for small CNNs. With 4 clients each training on reasonably large local datasets, even **one local epoch** per client plus FedAvg aggregation can produce rapid global improvement.
@@ -63,30 +63,30 @@
 
 ---
 
-## 5 — Detailed explanation: Effect of E, B, and C
+## 5, Detailed explanation: Effect of E, B, and C
 
-### E — local epochs (how many local passes each client does)
+### E -> local epochs (how many local passes each client does)
 - **Increasing E** (e.g., 1 → 3):
   - **Pros:** clients perform more local optimization, producing larger updates per communication round; can reduce required communication rounds.
   - **Cons:** on *non-IID* data, large E leads to stronger local overfitting / client drift; averaged updates may conflict and harm convergence.
 - **In IID settings:** higher E often helps (reduces communication).  
 - **In Non-IID settings:** prefer smaller E or use corrective algorithms (FedProx, SCAFFOLD).
 
-### B — batch size (local mini-batch for SGD)
+### B -> batch size (local mini-batch for SGD)
 - **Smaller B** (e.g., 16):
   - More SGD steps per epoch, *noisier* gradients → often better generalization but slower per-epoch throughput.
 - **Larger B** (e.g., 64):
   - Smoother gradients, faster throughput, sometimes slightly worse generalization.
 - **Interaction:** B interacts with E — (large E + small B) = many noisy steps → aggressive local updates.
 
-### C — client fraction (fraction_fit in FedAvg)
+### C -> client fraction (fraction_fit in FedAvg)
 - **C = 1.0**: all clients participate every round - aggregated update is representative; low variance; faster/stabler convergence.
 - **C = 0.5**: only half clients selected each round - less communication but higher variance in aggregated updates; convergence is slower and noisier.
 - **Tradeoff:** lower C reduces communication but typically requires more rounds to converge to the same accuracy.
 
 ---
 
-## 6 — Additional code-specific notes, pitfalls & quick fixes
+## 6, Additional code-specific notes, pitfalls & quick fixes
 
 1. **Extra evaluation point (num_rounds vs acc_list length)**  
    - Flower may evaluate before training begins. To append only accuracies after training rounds, check `server_round` in `evaluate()` and append only when `server_round > 0`.
@@ -105,7 +105,7 @@
 
 ---
 
-## 7 — Concrete suggestions to improve experiments & plots
+## 7, Concrete suggestions to improve experiments & plots
 - Increase `ROUNDS` (try 20–100) , 3 rounds is too few to analyze convergence.  
 - Run multiple seeds and report mean ± std.  
 - Change one hyperparameter at a time for clean comparisons.  
@@ -114,7 +114,7 @@
 
 ---
 
-## 8 — Quick troubleshooting checklist
+## 8, Quick troubleshooting checklist
 - `CLIENT_FRAC=1.0` with small `NUM_CLIENTS` → fast, stable convergence.  
 - Non-IID → client drift, slower convergence.  
 - High E on Non-IID → divergence risk.  
