@@ -180,6 +180,6 @@ for label, acc in results.items():
     plt.plot(range(1, len(acc)+1), acc, label=label)
 plt.xlabel("Round")
 plt.ylabel("Accuracy")
-plt.title("Effect of E, B, C on Federated Learning (MNIST, IID)")
+plt.title("Effect of E, B, C on Federated Learning (MNIST, NON_IID)")
 plt.legend()
 plt.show()

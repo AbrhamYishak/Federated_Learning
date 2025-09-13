@@ -10,8 +10,8 @@
 
 ## 2 — The results (plots)
 
-### Effect of E, B, C on Federated Learning (MNIST, IID)
-![Effect of E, B, C on Federated Learning (MNIST, IID)](comp.png)
+### Effect of E, B, C on Federated Learning (MNIST, NON_IID)
+![Effect of E, B, C on Federated Learning (MNIST, NON_IID)](comp.png)
 
 ### IID vs Non-IID Federated Learning (MNIST)
 ![IID vs Non-IID Federated Learning (MNIST)](iidvsnoniid.png)
@@ -122,14 +122,3 @@
 
 ---
 
-## 9 — Useful code snippets
-
-Only append accuracy after first round:
-```python
-def evaluate(server_round, parameters, config):
-    model = Net()
-    # load params...
-    loss, accuracy = test(model, get_testloader(batch_size))
-    if server_round > 0:
-        acc_list.append(accuracy)
-    return loss, {"accuracy": accuracy}
