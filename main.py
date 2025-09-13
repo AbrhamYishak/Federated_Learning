@@ -132,7 +132,7 @@ def run_simulation(partitioned_data, num_rounds, batch_size, local_epochs, clien
         model.load_state_dict(state_dict, strict=True)
 
         loss, accuracy = test(model, get_testloader(batch_size))
-        acc_list.append(accuracy)  # 👈 Manual storage
+        acc_list.append(accuracy)
         return loss, {"accuracy": accuracy}
 
     strategy = fl.server.strategy.FedAvg(
@@ -165,15 +165,15 @@ results = {}
 
 # Vary E
 for e in [1, 3]:
-    results[f"E={e}"] = run_simulation(iid_data, ROUNDS, BATCH_SIZE, e, CLIENT_FRAC)
+    results[f"E={e}"] = run_simulation(noniid_data, ROUNDS, BATCH_SIZE, e, CLIENT_FRAC)
 
 # Vary B
 for b in [16, 64]:
-    results[f"B={b}"] = run_simulation(iid_data, ROUNDS, b, LOCAL_EPOCHS, CLIENT_FRAC)
+    results[f"B={b}"] = run_simulation(noniid_data, ROUNDS, b, LOCAL_EPOCHS, CLIENT_FRAC)
 
 # Vary C
 for c in [0.5, 1.0]:
-    results[f"C={c}"] = run_simulation(iid_data, ROUNDS, BATCH_SIZE, LOCAL_EPOCHS, c)
+    results[f"C={c}"] = run_simulation(noniid_data, ROUNDS, BATCH_SIZE, LOCAL_EPOCHS, c)
 
 plt.figure(figsize=(8,5))
 for label, acc in results.items():
