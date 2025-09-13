@@ -11,7 +11,7 @@
 ## 2 — The results (plots)
 
 ### Effect of E, B, C on Federated Learning (MNIST, IID)
-![Effect of E, B, C on Federated Learning (MNIST, IID)](comparision.png)
+![Effect of E, B, C on Federated Learning (MNIST, IID)](comp.png)
 
 ### IID vs Non-IID Federated Learning (MNIST)
 ![IID vs Non-IID Federated Learning (MNIST)](iidvsnoniid.png)
