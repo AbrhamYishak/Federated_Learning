@@ -80,8 +80,8 @@
 - **Interaction:** B interacts with E — (large E + small B) = many noisy steps → aggressive local updates.
 
 ### C — client fraction (fraction_fit in FedAvg)
-- **C = 1.0**: all clients participate every round — aggregated update is representative; low variance; faster/stabler convergence.
-- **C = 0.5**: only half clients selected each round — less communication but higher variance in aggregated updates; convergence is slower and noisier.
+- **C = 1.0**: all clients participate every round - aggregated update is representative; low variance; faster/stabler convergence.
+- **C = 0.5**: only half clients selected each round - less communication but higher variance in aggregated updates; convergence is slower and noisier.
 - **Tradeoff:** lower C reduces communication but typically requires more rounds to converge to the same accuracy.
 
 ---
@@ -95,7 +95,7 @@
    - Set seeds (`np.random.seed`, `torch.manual_seed`, `random.seed`) for reproducibility.
 
 3. **Non-IID intensity**  
-   - `shards_per_client` in `noniid_partition` controls skew severity — fewer shards per client = more extreme non-IID.
+   - `shards_per_client` in `noniid_partition` controls skew severity, fewer shards per client = more extreme non-IID.
 
 4. **Model & dataset**  
    - Small CNN + MNIST converges quickly. For stronger FL behavior, use more clients, smaller local datasets, or harder tasks.
@@ -106,7 +106,7 @@
 ---
 
 ## 7 — Concrete suggestions to improve experiments & plots
-- Increase `ROUNDS` (try 20–100) — 3 rounds is too few to analyze convergence.  
+- Increase `ROUNDS` (try 20–100) , 3 rounds is too few to analyze convergence.  
 - Run multiple seeds and report mean ± std.  
 - Change one hyperparameter at a time for clean comparisons.  
 - Try different `shards_per_client` values to control non-IID severity.  
