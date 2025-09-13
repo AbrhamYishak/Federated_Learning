@@ -1,4 +1,5 @@
-# Federated Learning -> Summary, Code Explanation, and Results
+# Federated Learning
+# Summary, Code Explanation, and Results
 
 ## 1, Short summary of Federated Learning
 **Federated Learning (FL)** is a distributed training approach where many clients (devices, organizations) train a shared global model collaboratively **without sending raw data to a central server**. Each client trains locally and sends model updates (weights or gradients) to the server. The server aggregates updates (commonly with **FedAvg**) to produce a new global model.
